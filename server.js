@@ -15,7 +15,7 @@ let rankingData = [
   { id: 1, name: "Juego Alpha", lastPosition: 0, dateConfirmed: new Date() },
   { id: 2, name: "App Beta", lastPosition: 1, dateConfirmed: new Date() },
   { id: 3, name: "Juego Gamma", lastPosition: 2, dateConfirmed: new Date() },
-  { id: 4, name: "Hola", lastPosition: 3, dateConfirmed: new Date() },
+  { id: 4, name: "Hola", lastPosition: 5, dateConfirmed: new Date() },
   { id: 5, name: "App Delta", lastPosition: 4, dateConfirmed: new Date() },
 ];
 
