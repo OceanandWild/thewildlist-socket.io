@@ -16,7 +16,7 @@ let rankingData = [
   { id: 2, name: "App Beta" },
   { id: 3, name: "Juego Gamma" },
   { id: 4, name: "App Delta" },
-  { id: 5, name: "Juego Epsilon" }
+  { id: 5, name: "Hola" }
 ];
 
 io.on("connection", (socket) => {
