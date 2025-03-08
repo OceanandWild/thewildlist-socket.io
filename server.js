@@ -1,81 +1,124 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const path = require("path");
+let previousPositions = {};
+let lastConfirmedPositions = {}; // Guardará la fecha en la que el puesto fue confirmado
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
-// Servir archivos estáticos en la carpeta "public"
-app.use(express.static(path.join(__dirname, "public")));
-
-// Datos iniciales del ranking con historial de posiciones
-let rankingData = [
-  { id: 1, name: "Juego Alpha", lastPosition: 0, dateConfirmed: new Date() },
-  { id: 2, name: "App Beta", lastPosition: 1, dateConfirmed: new Date() },
-  { id: 3, name: "Juego Gamma", lastPosition: 2, dateConfirmed: new Date() },
-  { id: 4, name: "Hola", lastPosition: 5, dateConfirmed: new Date() },
-  { id: 5, name: "App Delta", lastPosition: 4, dateConfirmed: new Date() },
-];
+gsap.registerPlugin(Flip);
 
 /**
- * Compara el ranking actual con el nuevo para detectar cambios de posición.
- * @param {Array} newRanking - Nuevo ranking recibido del cliente.
+ * Renderiza el ranking y anima la transición con GSAP Flip.
+ * @param {Array} newData - Array con los datos del ranking recibido del servidor.
  */
-function compareRankings(newRanking) {
-  let changes = [];
+function renderRanking(newData) {
+  const rankingList = document.getElementById("ranking");
 
-  newRanking.forEach((item, newIndex) => {
-    let oldItem = rankingData.find((old) => old.id === item.id);
-    if (oldItem && oldItem.lastPosition !== newIndex) {
-      let diff = oldItem.lastPosition - newIndex;
-      let now = new Date();
+  // Capturar el estado actual de los elementos
+  const state = Flip.getState("#ranking li");
 
-      changes.push({
-        id: item.id,
-        name: item.name,
-        diff: diff,
-        dateConfirmed: oldItem.lastPosition === newIndex ? oldItem.dateConfirmed : now,
-      });
+  // Limpiar el contenido actual de la lista
+  rankingList.innerHTML = "";
 
-      // Actualizar la posición en el historial
-      item.lastPosition = newIndex;
-      item.dateConfirmed = oldItem.lastPosition === newIndex ? oldItem.dateConfirmed : now;
+  newData.forEach((item, index) => {
+    // Obtenemos la posición anterior
+    const prevPos = previousPositions[item.id];
+    const now = new Date().toLocaleDateString("es-UY");
+
+    // Calculamos la diferencia de posición solo si prevPos está definido
+    const diff = prevPos !== undefined ? prevPos - index : null;
+
+    if (diff !== null && diff !== 0) {
+      // Si la diferencia no es cero, almacenamos la fecha de la última confirmación
+      if (!lastConfirmedPositions[item.id] || diff !== 0) {
+        lastConfirmedPositions[item.id] = now;
+      }
     }
+
+    // Generar el HTML para la flecha solo si hay un cambio de posición
+    let arrowHTML = "";
+    if (diff > 0) {
+      // Subió de puesto
+      arrowHTML = `<span class="arrow up" data-tooltip="Subió ${diff} puesto${diff > 1 ? "s" : ""}, Desde ${lastConfirmedPositions[item.id]}" data-diff="${diff}" style="opacity: 0;">▲</span>`;
+    } else if (diff < 0) {
+      // Bajó de puesto
+      arrowHTML = `<span class="arrow down" data-tooltip="Bajó ${Math.abs(diff)} puesto${Math.abs(diff) > 1 ? "s" : ""}, Desde ${lastConfirmedPositions[item.id]}" data-diff="${diff}" style="opacity: 0;">▼</span>`;
+    }
+
+    const li = document.createElement("li");
+    li.id = `item-${item.id}`;
+    li.className = "ranking-item";
+    li.innerHTML = `
+      <div class="item-info">
+        <span class="item-rank">${index + 1}</span>
+        <span class="item-name">${item.name}</span>
+      </div>
+      ${arrowHTML}
+    `;
+    rankingList.appendChild(li);
+
+    // Actualizamos la posición anterior del item
+    previousPositions[item.id] = index;
   });
 
-  return { newRanking, changes };
+  // Animar la transición de los elementos con Flip
+  Flip.from(state, {
+    duration: 0.8,
+    ease: "power2.inOut",
+    absolute: true,
+    onComplete: animateArrows,  // Asegúrate de que se ejecute después de la animación de Flip
+  });
 }
 
-io.on("connection", (socket) => {
-  console.log("Cliente conectado:", socket.id);
-  socket.emit("rankingUpdate", rankingData);
-
-  // Evento para recibir cambios manuales del ranking desde el cliente
-  socket.on("updateRanking", (newRanking) => {
-    const { newRanking: updatedRanking, changes } = compareRankings(newRanking);
-
-    rankingData = updatedRanking;
-
-    io.emit("rankingUpdate", rankingData);
-    io.emit("rankingChanges", changes); // Enviar solo los cambios detectados
-    console.log("Ranking actualizado:", rankingData);
-    console.log("Cambios detectados:", changes);
+/**
+ * Anima las flechas que indican el cambio de posición.
+ */
+function animateArrows() {
+  document.querySelectorAll(".arrow").forEach(arrow => {
+    let diff = parseInt(arrow.getAttribute("data-diff"));
+    console.log("Diff:", diff);  // Verifica el valor de diff en la consola
+    if (diff && diff !== 0) {
+      gsap.fromTo(arrow, 
+        { opacity: 0, y: diff > 0 ? 10 : -10 }, 
+        { opacity: 1, y: 0, duration: 0.5, ease: "bounce.out", 
+          onComplete: () => {
+            gsap.to(arrow, { opacity: 0, delay: 2, duration: 0.5 });
+          }
+        }
+      );
+    }
   });
+}
 
-  // Evento para que un cliente solicite el ranking actualizado
-  socket.on("requestRanking", () => {
-    socket.emit("rankingUpdate", rankingData);
-  });
+// Conectar al servidor mediante Socket.IO
+const socket = io("https://thewildlist-socket-io.onrender.com", { transports: ["websocket", "polling"] });
 
-  socket.on("disconnect", () => {
-    console.log("Cliente desconectado:", socket.id);
-  });
+socket.on("connect", () => {
+  console.log("Conectado al servidor de Socket.IO");
 });
 
-// Inicia el servidor en el puerto definido (3000 por defecto)
-const PORT = process.env.PORT || 3004;
-server.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+socket.on("rankingUpdate", (rankingData) => {
+  console.log("Ranking actualizado:", rankingData);
+  renderRanking(rankingData);
+  updateLastUpdatedTime(); // 🔹 Agregar esta línea para actualizar la hora
 });
+
+let lastUpdatedTime = document.getElementById("lastUpdate");
+
+function updateLastUpdatedTime() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("es-UY", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Montevideo",
+  });
+
+  lastUpdatedTime.textContent = `Última actualización: ${formatter.format(now)} (UY)`;
+}
+
+// Función para solicitar el ranking actualizado al servidor
+function fetchUpdatedRanking() {
+  socket.emit("requestRanking"); // Solicitar el ranking
+}
+
+// Actualizar cada 3 minutos automáticamente
+setInterval(fetchUpdatedRanking, 180000); // 180000 ms = 3 minutos
+
+// Pedir el ranking inicial al cargar la página
+fetchUpdatedRanking();
